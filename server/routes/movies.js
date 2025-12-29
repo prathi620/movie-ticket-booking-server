@@ -16,9 +16,9 @@ const router = express.Router();
 
 // Public routes
 router.get('/', getMovies);
-router.get('/:id', getMovieById);
+router.get('/showtime/:id', getShowtimeById); // SPECIFIC ROUTE FIRST
 router.get('/:id/showtimes', getShowtimesForMovie);
-router.get('/showtime/:id', getShowtimeById);
+router.get('/:id', getMovieById); // GENERIC ROUTE LAST
 
 // Admin routes
 router.post('/', protect, admin, createMovie);
