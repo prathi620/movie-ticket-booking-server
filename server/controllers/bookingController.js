@@ -117,6 +117,11 @@ exports.createBooking = async (req, res) => {
             return res.status(404).json({ message: 'Showtime not found' });
         }
 
+        // Prevent booking for past showtimes (Double check)
+        if (new Date(showtime.startTime) < new Date()) {
+            return res.status(400).json({ message: 'Cannot book tickets for past showtimes' });
+        }
+
         if (!showtime.movie) {
             console.error(`Showtime ${showtimeId} has no movie populated`);
             return res.status(500).json({ message: 'Configuration error: Showtime has no associated movie' });
@@ -133,6 +138,8 @@ exports.createBooking = async (req, res) => {
         const bookedSeats = [];
         seats.forEach(seatNum => {
             const seat = showtime.seats.find(s => s.seatNumber === seatNum);
+            // Allow if locked by session OR if status is 'available' (race condition fallback, though risky without lock)
+            // Sticking to strict lock check for safety
             if (seat && seat.lockedBy === sessionId) {
                 console.log(`Updating seat ${seatNum} from ${seat.status} to booked`);
                 seat.status = 'booked';
@@ -152,14 +159,24 @@ exports.createBooking = async (req, res) => {
 
         if (bookedSeats.length !== seats.length) {
             console.error(`Seat booking mismatch: requested ${seats.length}, booked ${bookedSeats.length}`);
-            return res.status(400).json({ message: 'Some seats could not be booked' });
+            return res.status(400).json({ message: 'Some seats could not be booked or lock expired' });
         }
 
         // Save showtime with updated seat statuses
+        showtime.markModified('seats');
         await showtime.save();
         console.log(`Showtime ${showtimeId} saved with ${bookedSeats.length} booked seats`);
 
-        console.log('Creating booking with seats:', JSON.stringify(bookedSeats, null, 2));
+        // Sanitize seats to ensure schema compliance
+        const safeSeats = bookedSeats.map(s => ({
+            seatNumber: String(s.seatNumber),
+            row: Number(s.row),
+            col: Number(s.col),
+            type: String(s.type),
+            price: Number(s.price)
+        }));
+
+        console.log('Creating booking with safe seats:', JSON.stringify(safeSeats));
 
         // Create booking
         const booking = await Booking.create({
@@ -167,7 +184,7 @@ exports.createBooking = async (req, res) => {
             showtime: showtimeId,
             movie: showtime.movie._id,
             theater: showtime.theater._id,
-            seats: bookedSeats,
+            seats: safeSeats,
             totalPrice,
             paymentId: paymentIntentId,
             paymentStatus: 'completed',
@@ -287,7 +304,7 @@ exports.cancelBooking = async (req, res) => {
         }
 
         // Check if user owns this booking
-        if (booking.user.toString() !== req.user._id.toString()) {
+        if (booking.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
             return res.status(403).json({ message: 'Not authorized' });
         }
 
@@ -297,27 +314,42 @@ exports.cancelBooking = async (req, res) => {
         }
 
         // Check if showtime has passed
-        if (new Date(booking.showtime.startTime) < new Date()) {
-            return res.status(400).json({ message: 'Cannot cancel past bookings' });
+        if (booking.showtime && new Date(booking.showtime.startTime) < new Date()) {
+            return res.status(400).json({ message: 'Cannot cancel past or ongoing showtime bookings' });
         }
 
-        // Update showtime seats
-        const showtime = await Showtime.findById(booking.showtime._id);
-        booking.seats.forEach(bookedSeat => {
-            const seat = showtime.seats.find(s => s.seatNumber === bookedSeat.seatNumber);
-            if (seat) {
-                seat.status = 'available';
-                seat.bookedBy = null;
+        // Update showtime seats if showtime exists
+        if (booking.showtime) {
+            const showtime = await Showtime.findById(booking.showtime._id);
+            if (showtime) {
+                booking.seats.forEach(bookedSeat => {
+                    const seat = showtime.seats.find(s => s.seatNumber === bookedSeat.seatNumber);
+                    if (seat) {
+                        seat.status = 'available';
+                        seat.bookedBy = null;
+                    }
+                });
+                await showtime.save();
             }
-        });
-        await showtime.save();
+        }
 
         // Process refund
+        let refundProcessed = false;
         try {
-            await createRefund(booking.paymentId, booking.totalPrice);
-            booking.paymentStatus = 'refunded';
+            if (booking.paymentId && !booking.paymentId.startsWith('mock_')) {
+                const refundResult = await createRefund(booking.paymentId, booking.totalPrice);
+                if (refundResult.success) {
+                    booking.paymentStatus = 'refunded';
+                    refundProcessed = true;
+                }
+            } else {
+                // For mock payments, we assume success
+                booking.paymentStatus = 'refunded';
+                refundProcessed = true;
+            }
         } catch (refundError) {
             console.error('Refund failed:', refundError);
+            // We continue without blocking the cancellation, but we could log this
         }
 
         // Update booking
@@ -332,8 +364,13 @@ exports.cancelBooking = async (req, res) => {
             console.error('Email sending failed:', emailError);
         }
 
-        res.json({ message: 'Booking cancelled successfully', booking });
+        res.json({
+            message: 'Booking cancelled successfully',
+            booking,
+            refundProcessed
+        });
     } catch (error) {
+        console.error('Cancel Booking Error:', error);
         res.status(500).json({ message: error.message });
     }
 };
