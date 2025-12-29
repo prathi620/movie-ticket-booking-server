@@ -60,10 +60,8 @@ exports.getShowtimesForMovie = async (req, res) => {
             endDate.setHours(23, 59, 59, 999);
             query.startTime = { $gte: startDate, $lte: endDate };
         } else {
-            // By default, show upcoming AND recent showtimes (last 7 days) for verification
-            const recent = new Date();
-            recent.setDate(recent.getDate() - 7);
-            query.startTime = { $gte: recent };
+            // By default, show upcoming showtimes only
+            query.startTime = { $gte: new Date() };
         }
 
         let showtimes = await Showtime.find(query)
