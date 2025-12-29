@@ -265,8 +265,8 @@ const importData = async () => {
             });
         };
 
-        // Generate showtimes for next 5 days for ALL movies
-        for (let i = 0; i < 5; i++) {
+        // Generate showtimes for next 3 days for ALL movies
+        for (let i = 0; i < 3; i++) {
             movies.forEach((movie, mIndex) => {
                 // Determine theater and screen based on movie index
                 const theaterIdx = mIndex % 2;
@@ -276,34 +276,28 @@ const importData = async () => {
                 const screen = theater.screens[screenIdx] || theater.screens[0];
 
                 // Create TRULY varied showtimes for different movies
-                // Each movie gets a unique set of 3 showtimes
+                // Each movie gets a unique set of 2 showtimes
 
                 // Define ALL available time slots
                 const allTimeSlots = [
-                    [9, 0], [9, 30], [10, 0], [10, 30], [11, 0], [11, 30],
-                    [12, 0], [12, 30], [13, 0], [13, 30], [14, 0], [14, 30],
-                    [15, 0], [15, 30], [16, 0], [16, 30], [17, 0], [17, 30],
-                    [18, 0], [18, 30], [19, 0], [19, 30], [20, 0], [20, 30],
-                    [21, 0], [21, 30], [22, 0]
+                    [10, 0], [10, 30], [11, 0], [13, 0], [13, 30], [14, 0],
+                    [16, 0], [16, 30], [17, 0], [19, 0], [19, 30], [20, 0]
                 ];
 
-                // Each movie gets 3 showtimes, spread far apart
+                // Each movie gets 2 showtimes, spread far apart
                 // Use movie index to pick different starting points
-                const startIdx = (mIndex * 3) % allTimeSlots.length;
+                const startIdx = (mIndex * 2) % allTimeSlots.length;
                 const slot1Idx = startIdx;
-                const slot2Idx = (startIdx + 9) % allTimeSlots.length;  // ~4.5 hours apart
-                const slot3Idx = (startIdx + 18) % allTimeSlots.length; // ~9 hours apart
+                const slot2Idx = (startIdx + 6) % allTimeSlots.length;  // ~6 slots apart
 
                 const [hour1, min1] = allTimeSlots[slot1Idx];
                 const [hour2, min2] = allTimeSlots[slot2Idx];
-                const [hour3, min3] = allTimeSlots[slot3Idx];
 
-                console.log(`Movie ${mIndex} (${movie.title}): ${hour1}:${min1}, ${hour2}:${min2}, ${hour3}:${min3}`);
+                console.log(`Movie ${mIndex} (${movie.title}): ${hour1}:${min1}, ${hour2}:${min2}`);
 
-                // Add 3 different showtimes for each movie
+                // Add 2 different showtimes for each movie
                 addShowtime(mIndex, theaterIdx, screen.name, i, hour1, min1, screen.rows, screen.cols, screen.pricing.standard);
                 addShowtime(mIndex, theaterIdx, screen.name, i, hour2, min2, screen.rows, screen.cols, screen.pricing.premium);
-                addShowtime(mIndex, theaterIdx, screen.name, i, hour3, min3, screen.rows, screen.cols, screen.pricing.standard);
             });
         }
 
